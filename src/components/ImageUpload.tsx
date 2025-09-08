@@ -18,18 +18,21 @@ interface ImageUploadProps {
   onImageSelect: (image: UploadedImage) => void;
   selectedImage: UploadedImage | null;
   maxImages?: number;
+  onAnalysisComplete: (analysis: any) => void;
 }
 
 export const ImageUpload: React.FC<ImageUploadProps> = ({
   onImagesChange,
   onImageSelect,
   selectedImage,
-  maxImages = 10
+  maxImages = 10,
+  onAnalysisComplete
 }) => {
   const [images, setImages] = useState<UploadedImage[]>([]);
   const [dragActive, setDragActive] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [analyzing, setAnalyzing] = useState(false);
 
   const handleDrag = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -117,6 +120,34 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
   };
 
+  const analyzeImages = async () => {
+    if (images.length === 0) return;
+    
+    setAnalyzing(true);
+    try {
+      const formData = new FormData();
+      images.forEach(image => {
+        formData.append('files', image.file);
+      });
+
+      const response = await fetch('http://4.241.83.149:8000/process_images', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error('Analysis failed');
+      }
+
+      const analysisResult = await response.json();
+      onAnalysisComplete(analysisResult);
+    } catch (error) {
+      console.error('Analysis error:', error);
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full">
       <div className="mb-6">
@@ -167,9 +198,14 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
 
         {/* Upload Button */}
         <div className="flex space-x-2 mt-4">
-          <Button variant="outline" size="sm" disabled={images.length === 0}>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            disabled={images.length === 0 || analyzing}
+            onClick={analyzeImages}
+          >
             <Upload className="w-4 h-4 mr-2" />
-            Analyze Selected
+            {analyzing ? 'Analyzing...' : 'Analyze Selected'}
           </Button>
           <Button variant="outline" size="sm" onClick={() => {
             setImages([]);

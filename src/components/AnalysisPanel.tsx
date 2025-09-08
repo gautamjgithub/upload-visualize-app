@@ -14,12 +14,36 @@ interface UploadedImage {
   height?: number;
 }
 
+interface AnalysisResult {
+  summary: {
+    total_images: number;
+    total_size_mb: number;
+    average_size_mb: number;
+    unique_labels: string[];
+  };
+  images: Array<{
+    image_name: string;
+    format: string;
+    size_mb: number;
+    input_image_url: string;
+    annotated_image_url: string;
+    domain: string;
+    labels: string[];
+    detections: Array<{
+      class_name: string;
+      conf: number;
+      bbox: number[];
+    }>;
+  }>;
+}
+
 interface AnalysisPanelProps {
   images: UploadedImage[];
   selectedImage: UploadedImage | null;
+  analysisResult: AnalysisResult | null;
 }
 
-export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({ images, selectedImage }) => {
+export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({ images, selectedImage, analysisResult }) => {
   const totalSize = images.reduce((acc, img) => acc + img.size, 0);
   const avgSize = images.length > 0 ? totalSize / images.length : 0;
 
@@ -54,29 +78,63 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({ images, selectedIm
   const formatData = formatAnalysis();
   const COLORS = ['hsl(var(--primary))', 'hsl(var(--accent))', 'hsl(var(--success))', 'hsl(var(--warning))'];
 
-  // Mock analysis data - in real app this would come from API
-  const analysisData = {
+  // Get current image analysis data
+  const currentImageAnalysis = analysisResult?.images.find(
+    img => selectedImage && img.image_name === selectedImage.name
+  );
+
+  const analysisData = analysisResult ? {
     summary: {
-      description: selectedImage 
-        ? `Analysis of ${selectedImage.name} containing ${images.length === 1 ? 'a single image' : `batch of ${images.length} images`} with various scene elements and objects.`
-        : `This batch of ${images.length} images contains factory floor scenes with machinery, workers, and safety equipment.`,
-      labels: ['hard hat', 'person', 'safety vest'],
-      confidence: 95.2
+      description: selectedImage && currentImageAnalysis
+        ? `Analysis of ${selectedImage.name} detected ${currentImageAnalysis.detections.length} objects in ${currentImageAnalysis.domain} domain.`
+        : `Analysis of ${analysisResult.summary.total_images} images with ${analysisResult.summary.unique_labels.length} unique labels detected.`,
+      labels: analysisResult.summary.unique_labels,
+      confidence: currentImageAnalysis 
+        ? Math.round(currentImageAnalysis.detections.reduce((avg, det) => avg + det.conf, 0) / currentImageAnalysis.detections.length * 100)
+        : 0
     },
     dashboard: {
-      detectionCount: 1247,
-      averageConfidence: 87.3,
+      detectionCount: analysisResult.images.reduce((total, img) => total + img.detections.length, 0),
+      averageConfidence: Math.round(
+        analysisResult.images.reduce((total, img) => 
+          total + img.detections.reduce((avg, det) => avg + det.conf, 0) / img.detections.length, 0
+        ) / analysisResult.images.length * 100
+      ),
       processingTime: '2.4s'
+    }
+  } : {
+    summary: {
+      description: 'Upload and analyze images to see results here.',
+      labels: [],
+      confidence: 0
+    },
+    dashboard: {
+      detectionCount: 0,
+      averageConfidence: 0,
+      processingTime: '0s'
     }
   };
 
-  const detectionData = [
-    { name: 'Person', count: 45, confidence: 92 },
-    { name: 'Hard Hat', count: 38, confidence: 89 },
-    { name: 'Safety Vest', count: 32, confidence: 85 },
-    { name: 'Machinery', count: 28, confidence: 94 },
-    { name: 'Tools', count: 15, confidence: 78 }
-  ];
+  // Generate detection chart data from analysis results
+  const detectionData = analysisResult ? 
+    Object.entries(
+      analysisResult.images.reduce((acc, img) => {
+        img.detections.forEach(det => {
+          const className = det.class_name;
+          if (!acc[className]) {
+            acc[className] = { count: 0, totalConf: 0 };
+          }
+          acc[className].count++;
+          acc[className].totalConf += det.conf;
+        });
+        return acc;
+      }, {} as Record<string, { count: number; totalConf: number }>)
+    ).map(([name, data]) => ({
+      name: name.charAt(0).toUpperCase() + name.slice(1),
+      count: data.count,
+      confidence: Math.round((data.totalConf / data.count) * 100)
+    })).sort((a, b) => b.count - a.count)
+    : [];
 
   return (
     <div className="flex flex-col h-full">
@@ -103,21 +161,25 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({ images, selectedIm
             <div className="grid grid-cols-3 gap-4">
               <Card>
                 <CardContent className="p-4 text-center">
-                  <div className="text-2xl font-bold text-foreground">{images.length}</div>
+                  <div className="text-2xl font-bold text-foreground">{analysisResult?.summary.total_images || images.length}</div>
                   <div className="text-sm text-muted-foreground">Total Images</div>
                 </CardContent>
               </Card>
               
               <Card>
                 <CardContent className="p-4 text-center">
-                  <div className="text-2xl font-bold text-foreground">{formatFileSize(totalSize)}</div>
+                  <div className="text-2xl font-bold text-foreground">
+                    {analysisResult ? `${analysisResult.summary.total_size_mb.toFixed(2)} MB` : formatFileSize(totalSize)}
+                  </div>
                   <div className="text-sm text-muted-foreground">Total Size</div>
                 </CardContent>
               </Card>
               
               <Card>
                 <CardContent className="p-4 text-center">
-                  <div className="text-2xl font-bold text-foreground">{formatFileSize(avgSize)}</div>
+                  <div className="text-2xl font-bold text-foreground">
+                    {analysisResult ? `${analysisResult.summary.average_size_mb.toFixed(2)} MB` : formatFileSize(avgSize)}
+                  </div>
                   <div className="text-sm text-muted-foreground">Avg. Size</div>
                 </CardContent>
               </Card>
@@ -274,14 +336,24 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({ images, selectedIm
                     <div className="mt-4">
                       <span className="text-muted-foreground">Analysis Results:</span>
                       <div className="mt-2 space-y-2">
-                        {detectionData.slice(0, 3).map((detection) => (
-                          <div key={detection.name} className="flex justify-between">
-                            <span>{detection.name}</span>
-                            <span className="text-muted-foreground">{detection.confidence}%</span>
-                          </div>
-                        ))}
+                        {currentImageAnalysis ? (
+                          currentImageAnalysis.detections.slice(0, 5).map((detection, index) => (
+                            <div key={index} className="flex justify-between">
+                              <span className="capitalize">{detection.class_name}</span>
+                              <span className="text-muted-foreground">{(detection.conf * 100).toFixed(1)}%</span>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-sm text-muted-foreground">No analysis data available</p>
+                        )}
                       </div>
                     </div>
+                    {currentImageAnalysis && (
+                      <div className="mt-4">
+                        <span className="text-muted-foreground">Domain:</span>
+                        <p className="font-medium capitalize">{currentImageAnalysis.domain}</p>
+                      </div>
+                    )}
                   </>
                 ) : (
                   <p className="text-muted-foreground">Select an image to view detailed information.</p>

@@ -16,6 +16,7 @@ interface UploadedImage {
 const Index = () => {
   const [images, setImages] = useState<UploadedImage[]>([]);
   const [selectedImage, setSelectedImage] = useState<UploadedImage | null>(null);
+  const [analysisResult, setAnalysisResult] = useState<any>(null);
 
   const handleImagesChange = (newImages: UploadedImage[]) => {
     setImages(newImages);
@@ -26,6 +27,10 @@ const Index = () => {
 
   const handleImageSelect = (image: UploadedImage) => {
     setSelectedImage(image);
+  };
+
+  const handleAnalysisComplete = (analysis: any) => {
+    setAnalysisResult(analysis);
   };
 
   return (
@@ -50,6 +55,7 @@ const Index = () => {
             onImageSelect={handleImageSelect}
             selectedImage={selectedImage}
             maxImages={10}
+            onAnalysisComplete={handleAnalysisComplete}
           />
         </div>
 
@@ -58,6 +64,7 @@ const Index = () => {
           <AnalysisPanel 
             images={images}
             selectedImage={selectedImage}
+            analysisResult={analysisResult}
           />
         </div>
       </div>
